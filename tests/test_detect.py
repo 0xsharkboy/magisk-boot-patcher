@@ -194,6 +194,18 @@ def test_fstab_fallback_to_ramdisk(tmp_path):
     assert s.warnings() == []
 
 
+def test_fstab_fallback_to_ramdisk_system_etc(tmp_path):
+    # Layout of the reference boot ramdisk (fs_mgr also looks in system/etc/).
+    s = _detect(
+        tmp_path,
+        fstab=None,
+        vendor_build_prop=REF_PROPS,
+        boot_ramdisk_files={"init": b"x", "system/etc/fstab.exynos9820": REF_FSTAB.encode()},
+    )
+    assert s.keep_force_encrypt.source == "boot.img:ramdisk:system/etc/fstab.exynos9820:/data"
+    assert s.preinit_device.value == "cache"
+
+
 def test_no_fstab_warns(tmp_path):
     s = _detect(tmp_path, fstab=None, vendor_build_prop=REF_PROPS)
     assert s.warnings()
