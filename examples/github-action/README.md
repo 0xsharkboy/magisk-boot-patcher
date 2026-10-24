@@ -21,3 +21,10 @@ On every **published** release (`on: release: [published]`), it:
 - Magisk versions older than v28 are not supported.
 
 No extra secret is needed. The workflow only writes to the release that triggered it.
+
+The `GITHUB_TOKEN` is also passed to the container (`-e GITHUB_TOKEN`): `--magisk latest` queries the GitHub API, whose anonymous rate limit is shared by hosted runners and quickly reached (HTTP 403, then failure if there is no cache).
+
+## Limitations
+
+- **2 GiB per asset**: GitHub rejects release assets larger than 2 GiB. A larger ROM cannot be attached to the release; host it elsewhere and replace the "Download the ROM zip" step with a download from that location (`curl -fLo rom/rom.zip "$URL"`, for example). The patched boot image and the report stay small.
+- **Releases created by a workflow**: a release created with another workflow's `GITHUB_TOKEN` does not trigger `on: release` (GitHub does not chain workflows triggered by that token). If your releases are published by a workflow, create them with a personal token or a GitHub App, or add this workflow's steps to the one that publishes (adapting `TAG`, which comes from the `release` event here).
