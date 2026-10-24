@@ -112,3 +112,28 @@ def test_non_boot_file_rejected(tmp_path):
     p.write_bytes(b"\0" * 4096)
     with pytest.raises(UserError):
         open_source(p)
+
+
+def _broken_central_directory(tmp_path):
+    z = make_block_ota_zip(tmp_path / "rom", name="broken.zip")
+    data = z.read_bytes()
+    cd = data.rindex(b"PK\x01\x02")  # a central directory header; the EOCD stays intact
+    z.write_bytes(data[:cd] + b"XX" + data[cd + 2:])
+    assert zipfile.is_zipfile(z)
+    return z
+
+
+def test_broken_central_directory_is_user_error(tmp_path):
+    z = _broken_central_directory(tmp_path)
+    with pytest.raises(UserError):
+        open_source(z)
+    with pytest.raises(UserError):
+        BlockOtaZip(z)
+
+
+def test_broken_zip_exit_code_1(tmp_path, capsys):
+    from magisk_boot_patcher.cli import main
+
+    z = _broken_central_directory(tmp_path)
+    assert main(["inspect", str(z)]) == 1
+    assert "Internal error" not in capsys.readouterr().err

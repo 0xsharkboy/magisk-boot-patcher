@@ -4,6 +4,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
+from ..errors import UserError
 from ..fsimage import unsparse_if_needed
 from ..sdat import open_new_dat, sdat_to_img
 from .source import check_partition_name
@@ -13,8 +14,11 @@ class BlockOtaZip:
     def __init__(self, path: Path):
         self.path = Path(path)
         self.name = self.path.name
-        with zipfile.ZipFile(self.path) as z:
-            self._names = set(z.namelist())
+        try:
+            with zipfile.ZipFile(self.path) as z:
+                self._names = set(z.namelist())
+        except zipfile.BadZipFile as e:
+            raise UserError(f"{self.path}: corrupt zip ({e})") from None
 
     def target_image_name(self) -> str:
         return "init_boot.img" if "init_boot.img" in self._names else "boot.img"

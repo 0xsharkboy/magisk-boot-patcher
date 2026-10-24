@@ -39,8 +39,11 @@ def open_source(path: Path) -> RomSource:
     if not path.is_file():
         raise UserError(f"{path}: file not found")
     if zipfile.is_zipfile(path):
-        with zipfile.ZipFile(path) as z:
-            names = set(z.namelist())
+        try:
+            with zipfile.ZipFile(path) as z:
+                names = set(z.namelist())
+        except zipfile.BadZipFile as e:
+            raise UserError(f"{path}: corrupt zip ({e})") from None
         if "payload.bin" in names:
             raise UserError("payload.bin (A/B) not supported yet")
         if not names & {"boot.img", "init_boot.img"}:
