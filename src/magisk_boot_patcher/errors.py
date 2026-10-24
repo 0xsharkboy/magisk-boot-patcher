@@ -24,3 +24,7 @@ class ToolError(Exception):
         if self.stderr:
             parts.append("stderr: " + self.stderr.strip())
         return "\n".join(parts)
+
+
+class OfflineError(UserError):
+    """GitHub unreachable (or rate-limited) and nothing usable in the cache (exit code 1)."""

@@ -2,12 +2,13 @@ import hashlib
 import io
 import json
 import os
+import urllib.error
 import zipfile
 from pathlib import Path
 
 import pytest
 
-from magisk_boot_patcher.errors import UserError
+from magisk_boot_patcher.errors import OfflineError, UserError
 from magisk_boot_patcher.magisk_apk import (
     MagiskApk,
     host_abi,
@@ -261,3 +262,26 @@ def test_real_latest_apk(tmp_path):
     wd.mkdir()
     stage_apk(apk, wd, "x86_64", "arm64-v8a")
     assert (wd / "magiskboot").stat().st_mode & 0o111
+
+
+def rate_limited(url):
+    raise urllib.error.HTTPError(url, 403, "rate limit exceeded", {}, None)
+
+
+def test_offline_without_cache_is_offline_error(tmp_path):
+    with pytest.raises(OfflineError):
+        resolve_apk("latest", tmp_path, fetch=offline)
+
+
+def test_rate_limit_without_cache_suggests_token(tmp_path):
+    with pytest.raises(OfflineError, match="GITHUB_TOKEN") as exc:
+        resolve_apk("latest", tmp_path, fetch=rate_limited)
+    assert "limit" in str(exc.value)
+
+
+def test_rate_limit_with_cache_warns_and_suggests_token(gh, tmp_path, capsys):
+    resolve_apk("30.7", tmp_path, fetch=gh)
+    capsys.readouterr()
+    assert resolve_apk("30.7", tmp_path, fetch=rate_limited).version == "30.7"
+    err = capsys.readouterr().err
+    assert "limit" in err and "GITHUB_TOKEN" in err

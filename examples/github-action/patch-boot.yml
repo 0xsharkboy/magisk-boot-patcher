@@ -33,9 +33,14 @@ jobs:
           REPO: ${{ github.repository }}
 
       - name: Patch the boot image
+        env:
+          # Authenticated requests to the GitHub API (`--magisk latest`): without a token, the
+          # anonymous rate limit, shared by hosted runners, is quickly reached (HTTP 403).
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           mkdir -p out cache
           docker run --rm \
+            -e GITHUB_TOKEN \
             -v "$PWD:/work" \
             -v "$PWD/cache:/cache" \
             "$MBP_IMAGE" patch rom/*.zip --out out

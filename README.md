@@ -16,6 +16,8 @@ In the examples below, replace `magisk-boot-patcher` with `ghcr.io/0xsharkboy/ma
 
 The current directory is mounted on `/work` (the container works there) and a named Docker volume `mbp-cache` serves as the cache for downloaded Magisk APKs.
 
+`--magisk latest` (the default) and `canary` query the GitHub API on every run. Without authentication, it is limited to 60 requests per hour per IP address (a limit quickly reached behind a shared IP, such as GitHub Actions runners); beyond that, GitHub answers HTTP 403 and the tool falls back to the cache, or fails if the cache is empty. For heavy use, pass a token: `export GITHUB_TOKEN=…` then add `-e GITHUB_TOKEN` to `docker run` (the token is only sent to `api.github.com`).
+
 ### `inspect`: see the detected settings without patching anything
 
 ```sh

@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .errors import UserError
+from .errors import OfflineError, UserError
 
 API = "https://api.github.com/repos/topjohnwu/Magisk/releases"
 MIN_VERSION_CODE = 28000
@@ -101,21 +101,43 @@ def _newest_cached(cache: Path) -> MagiskApk | None:
     return None
 
 
+def _rate_limited(err: Exception) -> bool:
+    return isinstance(err, urllib.error.HTTPError) and err.code in (403, 429)
+
+
+_TOKEN_HINT = (
+    "set GITHUB_TOKEN (e.g. docker run -e GITHUB_TOKEN …) to raise the limit"
+)
+
+
 def _offline(spec: str, cache: Path, err: Exception) -> MagiskApk:
     apk = None
     if spec in ("latest", "canary"):
         apk = _newest_cached(cache)
     else:
         apk = _cached(cache, spec.removeprefix("v"))
+    limited = _rate_limited(err)
     if apk is None:
-        raise UserError(
+        if limited:
+            raise OfflineError(
+                f"GitHub API rate limit reached ({err}) and no Magisk APK "
+                f"cached for '{spec}'; {_TOKEN_HINT}, or pass the path of a local .apk"
+            )
+        raise OfflineError(
             f"cannot reach GitHub ({err}) and no cached Magisk APK for '{spec}'; "
             "go online once or pass a local .apk path"
         )
-    print(
-        f"warning: offline ({err}); using cached Magisk v{apk.version}",
-        file=sys.stderr,
-    )
+    if limited:
+        print(
+            f"Warning: GitHub API rate limit reached ({err}); "
+            f"Magisk v{apk.version} taken from the cache; {_TOKEN_HINT}",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"warning: offline ({err}); using cached Magisk v{apk.version}",
+            file=sys.stderr,
+        )
     return apk
 
 
