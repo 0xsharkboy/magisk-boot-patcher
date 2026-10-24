@@ -200,3 +200,20 @@ def test_outputs_finalized_when_repack_fails(tmp_path, monkeypatch, magisk_args)
     for p in [out, *files]:
         assert p.stat().st_uid == 1234
     assert all(oct(p.stat().st_mode & 0o777) == "0o644" for p in files)
+
+
+@pytest.mark.network
+def test_patch_config_mismatch_is_tool_error(tmp_path, monkeypatch, capsys, magisk_args):
+    from magisk_boot_patcher import cli
+
+    real = cli.verify_patched
+
+    def tampered(*a, **k):
+        return {**real(*a, **k), "KEEPVERITY": "false"}
+
+    monkeypatch.setattr(cli, "verify_patched", tampered)
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    out = tmp_path / "out"
+    assert main(["patch", str(zip_path), "--out", str(out), *magisk_args]) == 2
+    assert "KEEPVERITY" in capsys.readouterr().err
+    assert not out.exists()

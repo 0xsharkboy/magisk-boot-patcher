@@ -17,7 +17,7 @@ from .detect import apply_overrides, detect_settings
 from .errors import ToolError, UserError
 from .magisk_apk import host_abi, resolve_apk, stage_apk
 from .model import Settings
-from .patcher import patch_boot, verify_patched
+from .patcher import check_config, patch_boot, verify_patched
 from .repack import repack_zip
 from .report import build_report, render_text, write_report
 from .rom.source import RomSource, open_source
@@ -137,7 +137,7 @@ def _patch(args: argparse.Namespace, work: Path) -> int:
     staged = stage_apk(apk, work / "staged", host_abi(), settings.device_abi.value)
     original = _extract_original(src, work)
     result = patch_boot(original, settings, staged)
-    verify_patched(result.image, staged)
+    check_config(verify_patched(result.image, staged), settings)
     if result.repatched:
         print("Boot image already patched by Magisk: it was patched again.", file=sys.stderr)
 

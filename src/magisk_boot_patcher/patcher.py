@@ -113,3 +113,22 @@ def verify_patched(image: Path, staged: Path) -> dict[str, str]:
             k, v = line.split("=", 1)
             result[k] = v
     return result
+
+
+# Settings that boot_patch.sh records in the ramdisk's .backup/.magisk config.
+_CONFIG_KEYS = ("KEEPVERITY", "KEEPFORCEENCRYPT", "RECOVERYMODE", "PREINITDEVICE")
+
+
+def check_config(cfg: dict[str, str], settings: Settings) -> None:
+    """Fail unless the patched image's Magisk config holds the requested settings."""
+    env = settings.to_env()
+    wrong = [
+        f"{k}={cfg.get(k, '(missing)')} instead of {env.get(k, '(missing)')}"
+        for k in _CONFIG_KEYS
+        if cfg.get(k) != env.get(k)
+    ]
+    if wrong:
+        raise ToolError(
+            "the Magisk config of the patched boot image does not match the settings: "
+            + ", ".join(wrong)
+        )

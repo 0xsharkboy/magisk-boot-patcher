@@ -3,10 +3,10 @@ import shutil
 
 import pytest
 
-from magisk_boot_patcher.errors import UserError
+from magisk_boot_patcher.errors import ToolError, UserError
 from magisk_boot_patcher.magisk_apk import host_abi, stage_apk
 from magisk_boot_patcher.model import Finding, Settings
-from magisk_boot_patcher.patcher import patch_boot, verify_patched
+from magisk_boot_patcher.patcher import check_config, patch_boot, verify_patched
 
 from .helpers import make_boot_image
 
@@ -104,3 +104,32 @@ def test_patch_boot_refuses_boot_inside_staged(tmp_path):
     with pytest.raises(ValueError, match="inside"):
         patch_boot(boot, make_settings(), staged)
     assert boot.exists()
+
+
+def test_check_config_matches():
+    cfg = {**EXPECTED, "SHA1": "0" * 40}
+    check_config(cfg, make_settings())
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [("KEEPVERITY", "false"), ("KEEPFORCEENCRYPT", "false"), ("RECOVERYMODE", "true"),
+     ("PREINITDEVICE", "metadata"), ("PREINITDEVICE", None)],
+)
+def test_check_config_mismatch(key, value):
+    cfg = dict(EXPECTED)
+    if value is None:
+        del cfg[key]
+    else:
+        cfg[key] = value
+    with pytest.raises(ToolError, match=key):
+        check_config(cfg, make_settings())
+
+
+def test_check_config_without_preinit():
+    s = make_settings()
+    s.preinit_device = Finding(None, "not found", "test", True)
+    cfg = {k: v for k, v in EXPECTED.items() if k != "PREINITDEVICE"}
+    check_config(cfg, s)
+    with pytest.raises(ToolError, match="PREINITDEVICE"):
+        check_config({**cfg, "PREINITDEVICE": "sda1"}, s)
