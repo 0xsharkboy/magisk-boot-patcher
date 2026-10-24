@@ -318,6 +318,15 @@ def _system_as_root(sdk: Finding[int | None], dynamic: bool, dyn_source: str) ->
     return Finding(False, sdk.source, why, warning=True)
 
 
+# Magisk never picks the pre-init partition at boot: magiskinit skips pre-init storage
+# when the config has no PREINITDEVICE (native/src/init/mount.cpp, mount_preinit_dir).
+_NO_PREINIT = (
+    "Magisk does not pick one at boot (no pre-init storage, used "
+    "notably by the sepolicy rules of modules); force it with --preinit-device, "
+    "or reinstall later from the Magisk app (direct install)"
+)
+
+
 def _fstab_findings(rom: _Rom) -> tuple[Finding[bool], Finding[str | None]]:
     """Return (keep_force_encrypt, preinit_device)."""
     fstab, missing, note = rom.find_fstab()
@@ -325,7 +334,7 @@ def _fstab_findings(rom: _Rom) -> tuple[Finding[bool], Finding[str | None]]:
         why = f"no fstab ({missing})"
         return (
             Finding(True, "default", f"{why}; Magisk's safe default", True),
-            Finding(None, "not found", why, True),
+            Finding(None, "not found", f"{why}; {_NO_PREINIT}", True),
         )
     enc, flag = _encryption(fstab.data)
     enc_why = f"/data encryption: {enc}" + (f" ({flag})" if flag else "")
@@ -335,7 +344,8 @@ def _fstab_findings(rom: _Rom) -> tuple[Finding[bool], Finding[str | None]]:
     )
     entry = _preinit_entry(fstab.entries, enc)
     if entry is None:
-        return encrypt, Finding(None, fstab.label, "no candidate partition in the fstab", True)
+        why = f"no candidate partition in the fstab; {_NO_PREINIT}"
+        return encrypt, Finding(None, fstab.label, why, True)
     cands = _preinit_candidates(fstab.entries, enc)
     mount_points = [e.mount_point for e in cands]
     duplicated = len(set(mount_points)) != len(mount_points)

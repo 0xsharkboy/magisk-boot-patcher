@@ -395,3 +395,18 @@ def test_apply_overrides():
     assert s.preinit_device.value == "cache"
     with pytest.raises(ValueError):
         apply_overrides(s, {"nope": 1})
+
+
+@pytest.mark.parametrize(
+    "fstab",
+    [
+        None,
+        "/dev/block/by-name/userdata /data f2fs noatime "
+        "wait,fileencryption=aes-256-xts,keydirectory=/metadata/vold/metadata_encryption\n",
+    ],
+)
+def test_undetected_preinit_warning_explains_consequence(tmp_path, fstab):
+    s = _detect(tmp_path, fstab=fstab, vendor_build_prop=REF_PROPS)
+    assert s.preinit_device.value is None and s.preinit_device.warning
+    assert "not pick one at boot" in s.preinit_device.reason
+    assert "--preinit-device" in s.preinit_device.reason
