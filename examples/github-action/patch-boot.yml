@@ -1,0 +1,51 @@
+# Example workflow to copy into your ROM's repository (.github/workflows/patch-boot.yml).
+# On every published release, it downloads the ROM zip, produces the Magisk-patched boot
+# image and attaches the boot image and the report to the same release.
+name: Patch boot with Magisk
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write # needed for `gh release upload`
+
+env:
+  # Glob pattern of the ROM zip asset in the release. Adapt it to your naming.
+  ROM_ASSET_GLOB: "*.zip"
+  # Published image of the tool (lowercase).
+  MBP_IMAGE: ghcr.io/0xsharkboy/magisk-boot-patcher:latest
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the ROM zip from the release
+        run: |
+          mkdir -p rom
+          gh release download "$TAG" --repo "$REPO" --pattern "$ROM_ASSET_GLOB" --dir rom
+          ls -lh rom
+          shopt -s nullglob; zips=(rom/*.zip)
+          [ "${#zips[@]}" -eq 1 ] || { echo "::error::ROM_ASSET_GLOB must match exactly one zip"; exit 1; }
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+
+      - name: Patch the boot image
+        run: |
+          mkdir -p out cache
+          docker run --rm \
+            -v "$PWD:/work" \
+            -v "$PWD/cache:/cache" \
+            "$MBP_IMAGE" patch rom/*.zip --out out
+          ls -l out
+
+      - name: Upload boot image and report to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release upload "$TAG" --repo "$REPO" --clobber \
+            out/*-magisk-*.img out/*.report.txt
