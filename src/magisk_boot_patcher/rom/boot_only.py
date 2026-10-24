@@ -12,7 +12,7 @@ class BootImageOnly:
         self.name = self.path.name
 
     def target_image_name(self) -> str:
-        return "boot.img"
+        return "init_boot.img" if self.path.stem == "init_boot" else "boot.img"
 
     def extract_target(self, dest: Path) -> Path:
         shutil.copyfile(self.path, dest)

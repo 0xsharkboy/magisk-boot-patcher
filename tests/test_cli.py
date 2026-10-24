@@ -217,3 +217,13 @@ def test_patch_config_mismatch_is_tool_error(tmp_path, monkeypatch, capsys, magi
     assert main(["patch", str(zip_path), "--out", str(out), *magisk_args]) == 2
     assert "KEEPVERITY" in capsys.readouterr().err
     assert not out.exists()
+
+
+def test_inspect_bare_init_boot_target(tmp_path, capsys):
+    img = make_boot_image(tmp_path / "init_boot.img", header_version=4)
+    assert main(["inspect", str(img), "--json"]) == 0
+    rep = json.loads(capsys.readouterr().out)
+    assert rep["target_image"] == "init_boot.img"
+    sources = [s["source"] for s in rep["settings"].values()]
+    assert "init_boot.img:ramdisk_size" in sources
+    assert not [s for s in sources if s.startswith("boot.img:")]

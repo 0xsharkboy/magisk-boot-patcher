@@ -137,3 +137,9 @@ def test_broken_zip_exit_code_1(tmp_path, capsys):
     z = _broken_central_directory(tmp_path)
     assert main(["inspect", str(z)]) == 1
     assert "Internal error" not in capsys.readouterr().err
+
+
+def test_bare_init_boot_target_name(tmp_path):
+    src = open_source(make_boot_image(tmp_path / "init_boot.img", header_version=4))
+    assert src.target_image_name() == "init_boot.img"
+    assert open_source(make_boot_image(tmp_path / "init_boot-old.img")).target_image_name() == "boot.img"

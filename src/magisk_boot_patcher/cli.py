@@ -21,7 +21,6 @@ from .patcher import check_config, patch_boot, verify_patched
 from .repack import repack_zip
 from .report import build_report, render_text, write_report
 from .rom.source import RomSource, open_source
-from .rom.boot_only import BootImageOnly
 
 UNSIGNED_WARNING = "Unsigned zip: requires a recovery that does not verify signatures"
 
@@ -95,12 +94,6 @@ def _extract_original(src: RomSource, work: Path) -> Path:
     return src.extract_target(orig / src.target_image_name())
 
 
-def _image_stem(src: RomSource, input_path: Path) -> str:
-    if isinstance(src, BootImageOnly):
-        return "init_boot" if input_path.stem == "init_boot" else "boot"
-    return Path(src.target_image_name()).stem
-
-
 def _inspect(args: argparse.Namespace, work: Path) -> int:
     input_path = Path(args.input).resolve()
     src = open_source(input_path)
@@ -141,7 +134,7 @@ def _patch(args: argparse.Namespace, work: Path) -> int:
     if result.repatched:
         print("Boot image already patched by Magisk: it was patched again.", file=sys.stderr)
 
-    stem = f"{_image_stem(src, input_path)}-magisk-v{apk.version}"
+    stem = f"{Path(src.target_image_name()).stem}-magisk-v{apk.version}"
     created = not out.exists()
     out.mkdir(parents=True, exist_ok=True)
     outputs: list[Path] = []
@@ -151,7 +144,7 @@ def _patch(args: argparse.Namespace, work: Path) -> int:
         outputs.append(patched)
 
         report = build_report(
-            input_path=input_path, target_name=f"{_image_stem(src, input_path)}.img",
+            input_path=input_path, target_name=src.target_image_name(),
             original=original, patched=patched, settings=settings, apk=apk,
             extracted=src.extracted_partitions(), tool_version=__version__,
         )
