@@ -1,0 +1,6 @@
+# begin build properties
+import /vendor/etc/other.prop
+ro.vendor.build.version.sdk=36
+ro.boot.dynamic_partitions=true
+ro.vendor.product.cpu.abilist64=arm64-v8a
+ro.vendor.product.cpu.abilist=arm64-v8a,armeabi-v7a,armeabi
