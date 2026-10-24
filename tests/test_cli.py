@@ -135,3 +135,68 @@ def test_outputs_chowned_to_dir_owner(tmp_path, monkeypatch):
     assert len(files) == 4
     for p in [out, *files]:
         assert p.stat().st_uid == 1234 and p.stat().st_gid == 1234
+
+
+def test_unexpected_exception_exit_2(tmp_path, monkeypatch, capsys):
+    from magisk_boot_patcher import cli
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(cli, "detect_settings", boom)
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    assert main(["inspect", str(zip_path)]) == 2
+    err = capsys.readouterr().err
+    assert "disk full" in err and "Traceback" not in err
+    with pytest.raises(OSError):
+        main(["inspect", str(zip_path), "--debug"])
+
+
+def test_workdir_removed_on_error(tmp_path, monkeypatch):
+    import tempfile
+
+    tmp = tmp_path / "tmp"
+    tmp.mkdir()
+    monkeypatch.setenv("TMPDIR", str(tmp))
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    assert main(["inspect", str(tmp_path / "nope.zip")]) == 1
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    from magisk_boot_patcher import cli
+
+    monkeypatch.setattr(cli, "detect_settings", lambda *a: (_ for _ in ()).throw(OSError("x")))
+    assert main(["inspect", str(zip_path)]) == 2
+    assert list(tmp.iterdir()) == []
+
+
+def test_repack_zip_with_bare_image_rejected_early(tmp_path, monkeypatch, capsys):
+    from magisk_boot_patcher import cli
+
+    def no_download(*a, **k):
+        raise AssertionError("must not resolve the APK")
+
+    monkeypatch.setattr(cli, "resolve_apk", no_download)
+    img = make_boot_image(tmp_path / "boot.img")
+    out = tmp_path / "out"
+    assert main(["patch", str(img), "--out", str(out), "--repack-zip"]) == 1
+    assert "--repack-zip" in capsys.readouterr().err
+    assert not out.exists()
+
+
+@pytest.mark.network
+@pytest.mark.skipif(os.geteuid() != 0, reason="chown needs root")
+def test_outputs_finalized_when_repack_fails(tmp_path, monkeypatch):
+    from magisk_boot_patcher import cli
+
+    monkeypatch.setenv("MBP_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(cli, "repack_zip", lambda *a, **k: (_ for _ in ()).throw(OSError("full")))
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    base = tmp_path / "base"
+    base.mkdir()
+    os.chown(base, 1234, 1234)
+    out = base / "out"
+    assert main(["patch", str(zip_path), "--out", str(out), "--repack-zip"]) == 2
+    files = list(out.iterdir())
+    assert files
+    for p in [out, *files]:
+        assert p.stat().st_uid == 1234
+    assert all(oct(p.stat().st_mode & 0o777) == "0o644" for p in files)

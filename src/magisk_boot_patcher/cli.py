@@ -127,6 +127,8 @@ def _patch(args: argparse.Namespace, work: Path) -> int:
     input_path = Path(args.input).resolve()
     out = Path(args.out).resolve()
     src = open_source(input_path)
+    if args.repack_zip and not zipfile.is_zipfile(input_path):
+        raise UserError("--repack-zip requires a ROM zip as input")
     settings = _detect(src, args, work)
     for w in settings.warnings():
         print(f"Warning: {w}", file=sys.stderr)
@@ -143,31 +145,31 @@ def _patch(args: argparse.Namespace, work: Path) -> int:
     created = not out.exists()
     out.mkdir(parents=True, exist_ok=True)
     outputs: list[Path] = []
-    patched = out / f"{stem}.img"
-    shutil.copyfile(result.image, patched)
-    outputs.append(patched)
+    try:
+        patched = out / f"{stem}.img"
+        shutil.copyfile(result.image, patched)
+        outputs.append(patched)
 
-    report = build_report(
-        input_path=input_path, target_name=f"{_image_stem(src, input_path)}.img",
-        original=original, patched=patched, settings=settings, apk=apk,
-        extracted=src.extracted_partitions(), tool_version=__version__,
-    )
-    outputs.extend(write_report(report, out, stem))
+        report = build_report(
+            input_path=input_path, target_name=f"{_image_stem(src, input_path)}.img",
+            original=original, patched=patched, settings=settings, apk=apk,
+            extracted=src.extracted_partitions(), tool_version=__version__,
+        )
+        outputs.extend(write_report(report, out, stem))
 
-    if args.repack_zip:
-        if not zipfile.is_zipfile(input_path):
-            raise UserError("--repack-zip requires a ROM zip as input")
-        zip_out = out / f"{input_path.stem}-magisk-v{apk.version}-unsigned.zip"
-        repack_zip(input_path, src.target_image_name(), patched, zip_out)
-        outputs.append(zip_out)
-        print(f"Warning: {UNSIGNED_WARNING}", file=sys.stderr)
-
-    for p in outputs:
-        p.chmod(0o644)
-    if created:
-        out.chmod(0o755)
-        outputs.append(out)
-    _chown_like_parent(out, outputs)
+        if args.repack_zip:
+            zip_out = out / f"{input_path.stem}-magisk-v{apk.version}-unsigned.zip"
+            repack_zip(input_path, src.target_image_name(), patched, zip_out)
+            outputs.append(zip_out)
+            print(f"Warning: {UNSIGNED_WARNING}", file=sys.stderr)
+    finally:
+        # runs even when a later step failed, for the files written so far
+        for p in outputs:
+            p.chmod(0o644)
+        if created:
+            out.chmod(0o755)
+            outputs.append(out)
+        _chown_like_parent(out, outputs)
 
     print(render_text(report), end="")
     for p in outputs:
@@ -191,4 +193,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.debug:
             raise
         print(f"Internal error: {e}", file=sys.stderr)
+        return 2
+    except Exception as e:  # noqa: BLE001 - keep the 0/1/2 exit-code contract
+        if args.debug:
+            raise
+        print(f"Internal error: {type(e).__name__}: {e}", file=sys.stderr)
         return 2
