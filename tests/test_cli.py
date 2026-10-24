@@ -83,11 +83,11 @@ def test_workdir_removed(tmp_path, monkeypatch):
 
 
 @pytest.mark.network
-def test_patch_zip(tmp_path, capsys, monkeypatch):
+def test_patch_zip(tmp_path, capsys, monkeypatch, magisk_args):
     monkeypatch.setenv("MBP_CACHE_DIR", str(tmp_path / "cache"))
     zip_path = make_block_ota_zip(tmp_path / "rom")
     out = tmp_path / "out"
-    rc = main(["patch", str(zip_path), "--out", str(out), "--preinit-device", "metadata"])
+    rc = main(["patch", str(zip_path), "--out", str(out), "--preinit-device", "metadata", *magisk_args])
     assert rc == 0
     imgs = list(out.glob("boot-magisk-v*.img"))
     assert len(imgs) == 1
@@ -101,11 +101,11 @@ def test_patch_zip(tmp_path, capsys, monkeypatch):
 
 
 @pytest.mark.network
-def test_patch_repack_zip(tmp_path, capsys, monkeypatch):
+def test_patch_repack_zip(tmp_path, capsys, monkeypatch, magisk_args):
     monkeypatch.setenv("MBP_CACHE_DIR", str(tmp_path / "cache"))
     zip_path = make_block_ota_zip(tmp_path / "rom")
     out = tmp_path / "out"
-    assert main(["patch", str(zip_path), "--out", str(out), "--repack-zip"]) == 0
+    assert main(["patch", str(zip_path), "--out", str(out), "--repack-zip", *magisk_args]) == 0
     zips = list(out.glob("rom-magisk-v*-unsigned.zip"))
     assert len(zips) == 1
     assert oct(zips[0].stat().st_mode & 0o777) == "0o644"
@@ -113,24 +113,24 @@ def test_patch_repack_zip(tmp_path, capsys, monkeypatch):
 
 
 @pytest.mark.network
-def test_patch_bare_init_boot_naming(tmp_path, monkeypatch):
+def test_patch_bare_init_boot_naming(tmp_path, monkeypatch, magisk_args):
     monkeypatch.setenv("MBP_CACHE_DIR", str(tmp_path / "cache"))
     img = make_boot_image(tmp_path / "init_boot.img", header_version=4)
     out = tmp_path / "out"
-    assert main(["patch", str(img), "--out", str(out)]) == 0
+    assert main(["patch", str(img), "--out", str(out), *magisk_args]) == 0
     assert list(out.glob("init_boot-magisk-v*.img"))
 
 
 @pytest.mark.network
 @pytest.mark.skipif(os.geteuid() != 0, reason="chown needs root")
-def test_outputs_chowned_to_dir_owner(tmp_path, monkeypatch):
+def test_outputs_chowned_to_dir_owner(tmp_path, monkeypatch, magisk_args):
     monkeypatch.setenv("MBP_CACHE_DIR", str(tmp_path / "cache"))
     zip_path = make_block_ota_zip(tmp_path / "rom")
     base = tmp_path / "base"
     base.mkdir()
     os.chown(base, 1234, 1234)
     out = base / "out"
-    assert main(["patch", str(zip_path), "--out", str(out), "--repack-zip"]) == 0
+    assert main(["patch", str(zip_path), "--out", str(out), "--repack-zip", *magisk_args]) == 0
     files = list(out.iterdir())
     assert len(files) == 4
     for p in [out, *files]:
@@ -184,7 +184,7 @@ def test_repack_zip_with_bare_image_rejected_early(tmp_path, monkeypatch, capsys
 
 @pytest.mark.network
 @pytest.mark.skipif(os.geteuid() != 0, reason="chown needs root")
-def test_outputs_finalized_when_repack_fails(tmp_path, monkeypatch):
+def test_outputs_finalized_when_repack_fails(tmp_path, monkeypatch, magisk_args):
     from magisk_boot_patcher import cli
 
     monkeypatch.setenv("MBP_CACHE_DIR", str(tmp_path / "cache"))
@@ -194,7 +194,7 @@ def test_outputs_finalized_when_repack_fails(tmp_path, monkeypatch):
     base.mkdir()
     os.chown(base, 1234, 1234)
     out = base / "out"
-    assert main(["patch", str(zip_path), "--out", str(out), "--repack-zip"]) == 2
+    assert main(["patch", str(zip_path), "--out", str(out), "--repack-zip", *magisk_args]) == 2
     files = list(out.iterdir())
     assert files
     for p in [out, *files]:

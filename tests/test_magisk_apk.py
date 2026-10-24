@@ -16,6 +16,8 @@ from magisk_boot_patcher.magisk_apk import (
     stage_apk,
 )
 
+from .conftest import resolve_or_skip
+
 FLAGS = (
     "[ -z $KEEPVERITY ] && KEEPVERITY=false\n"
     "[ -z $KEEPFORCEENCRYPT ] && KEEPFORCEENCRYPT=false\n"
@@ -256,7 +258,7 @@ def test_host_abi(monkeypatch):
 
 @pytest.mark.network
 def test_real_latest_apk(tmp_path):
-    apk = resolve_apk("latest", tmp_path)
+    apk = resolve_or_skip("latest", tmp_path)
     assert apk.version_code >= 28000
     wd = tmp_path / "wd"
     wd.mkdir()

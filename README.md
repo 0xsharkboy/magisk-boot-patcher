@@ -151,6 +151,14 @@ docker run --rm -v "$PWD:/src" -w /src \
 
 To exclude a group: `pytest -q -m "not network"`.
 
+The tests that actually patch a boot image need a Magisk APK. By default they download the latest release, once per session, and are **skipped** (not failed) if GitHub is unreachable or the API rate limit is reached (passing `-e GITHUB_TOKEN` avoids that). To run them offline, point `MBP_TEST_APK` at a local APK:
+
+```sh
+docker run --rm -v "$PWD:/src" -w /src \
+  -v "$HOME/Downloads/Magisk-v30.7.apk:/apk/Magisk.apk:ro" -e MBP_TEST_APK=/apk/Magisk.apk \
+  mbp-dev pytest -q
+```
+
 ## Publishing and GitHub Action
 
 - `.github/workflows/docker-publish.yml` builds the multi-arch image (`linux/amd64`, `linux/arm64`, `runtime` target) and publishes it to `ghcr.io` on every `v*` tag and every push to the default branch.

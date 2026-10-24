@@ -4,7 +4,7 @@ import shutil
 import pytest
 
 from magisk_boot_patcher.errors import UserError
-from magisk_boot_patcher.magisk_apk import host_abi, resolve_apk, stage_apk
+from magisk_boot_patcher.magisk_apk import host_abi, stage_apk
 from magisk_boot_patcher.model import Finding, Settings
 from magisk_boot_patcher.patcher import patch_boot, verify_patched
 
@@ -28,11 +28,9 @@ def make_settings() -> Settings:
 
 
 @pytest.fixture(scope="module")
-def staged_apk(tmp_path_factory):
-    base = tmp_path_factory.mktemp("apk")
-    apk = resolve_apk("latest", base / "cache")
-    wd = base / "staged"
-    stage_apk(apk, wd, host_abi(), "arm64-v8a")
+def staged_apk(tmp_path_factory, magisk_apk):
+    wd = tmp_path_factory.mktemp("apk") / "staged"
+    stage_apk(magisk_apk, wd, host_abi(), "arm64-v8a")
     return wd
 
 
