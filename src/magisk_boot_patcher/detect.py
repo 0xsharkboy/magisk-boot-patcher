@@ -99,8 +99,12 @@ def _preinit_entry(entries: list[FstabEntry], encrypt: Encryption) -> FstabEntry
     cands = _preinit_candidates(entries, encrypt)
     if not cands:
         return None
-    key = functools.cmp_to_key(lambda a, b: _cmp(*((_PART_IDS[e.mount_point], e.fs_type) for e in (a, b))))
-    return min(cands, key=key)
+
+    def key(e: FstabEntry) -> tuple[int, str]:
+        return _PART_IDS[e.mount_point], e.fs_type
+
+    # select_nth_unstable_by(0, cmp) == the minimum according to cmp.
+    return min(cands, key=functools.cmp_to_key(lambda a, b: _cmp(key(a), key(b))))
 
 
 def find_preinit_device(entries: list[FstabEntry], encrypt: Encryption) -> str | None:
@@ -240,7 +244,8 @@ def _sdk(rom: _Rom) -> Finding[int | None]:
             return Finding(int(value), f"zip:{OTA_METADATA}:post-sdk-level", "OTA target SDK")
     value = rom.props.get("ro.vendor.build.version.sdk", "")
     if value.isdigit():
-        return Finding(int(value), "vendor:/build.prop:ro.vendor.build.version.sdk", "vendor SDK")
+        source = "vendor:/build.prop:ro.vendor.build.version.sdk"
+        return Finding(int(value), source, "vendor SDK")
     osv = rom.header.os_version
     if osv is not None:
         major = osv[0]
@@ -254,7 +259,8 @@ def _sdk(rom: _Rom) -> Finding[int | None]:
             return Finding(major + 20, src, f"extrapolated from Android {major}", warning=True)
         if major < 10:
             return Finding(None, src, f"Android {major}: SDK not inferred", warning=True)
-    return Finding(None, "not found", "SDK not found (OTA metadata, vendor, boot header)", warning=True)
+    why = "SDK not found (OTA metadata, vendor, boot header)"
+    return Finding(None, "not found", why, warning=True)
 
 
 def _dynamic(rom: _Rom) -> tuple[bool, str]:
@@ -288,60 +294,66 @@ def _device_abi(rom: _Rom) -> Finding[str]:
     return Finding("arm64-v8a", "default", f"{why}; arm64-v8a by default", warning=True)
 
 
-def detect_settings(src: RomSource, workdir: Path) -> Settings:
-    rom = _Rom(src, workdir)
-
-    sdk = _sdk(rom)
-    dynamic, dyn_source = _dynamic(rom)
+def _system_as_root(sdk: Finding[int | None], dynamic: bool, dyn_source: str) -> Finding[bool]:
     if sdk.value is not None and sdk.value >= 29:
-        sar, sar_src, sar_why, sar_warn = True, sdk.source, f"system-as-root (SDK {sdk.value} ≥ 29)", False
-    elif dynamic:
-        sar, sar_src, sar_why, sar_warn = True, dyn_source, "system-as-root (dynamic partitions)", False
-    else:
-        sar, sar_src, sar_warn = False, sdk.source, True
-        sar_why = f"SDK {sdk.value if sdk.value is not None else 'unknown'} without dynamic partitions: SAR assumed false"
-    keep_verity = Finding(sar, sar_src, sar_why, sar_warn)
+        return Finding(True, sdk.source, f"system-as-root (SDK {sdk.value} ≥ 29)")
+    if dynamic:
+        return Finding(True, dyn_source, "system-as-root (dynamic partitions)")
+    level = sdk.value if sdk.value is not None else "unknown"
+    why = f"SDK {level} without dynamic partitions: SAR assumed false"
+    return Finding(False, sdk.source, why, warning=True)
 
-    legacy = sar and not dynamic and rom.header.ramdisk_size == 0
-    legacy_sar = Finding(
-        legacy,
-        f"{rom.target}:ramdisk_size",
-        f"SAR={sar}, dynamic={dynamic}, ramdisk of {rom.header.ramdisk_size} bytes",
-        sar_warn,
-    )
 
+def _fstab_findings(rom: _Rom) -> tuple[Finding[bool], Finding[str | None]]:
+    """Return (keep_force_encrypt, preinit_device)."""
     fstab, missing, note = rom.find_fstab()
     if fstab is None:
-        keep_force_encrypt = Finding(True, "default", f"no fstab ({missing}); Magisk's safe default", True)
-        preinit = Finding(None, "not found", f"no fstab ({missing})", True)
-    else:
-        data = fstab.data
-        enc = encryption_type(data)
-        keep_force_encrypt = Finding(enc != "none", f"{fstab.label}:/data", f"/data encryption: {enc}")
-        entry = _preinit_entry(fstab.entries, enc)
-        if entry is None:
-            preinit = Finding(None, fstab.label, "no candidate partition in the fstab", True)
-        else:
-            cands = _preinit_candidates(fstab.entries, enc)
-            mps = [e.mount_point for e in cands]
-            alt = len(set(mps)) != len(mps)
-            why = f"encryption {enc}; candidates " + ", ".join(
-                f"{posixpath.basename(e.source)}({e.mount_point}, {e.fs_type})" for e in cands
-            )
-            if alt:
-                why += "; several entries for the same mount point"
-            if note:
-                why += f"; {note}"
-            preinit = Finding(
-                posixpath.basename(entry.source), f"{fstab.label}:{entry.mount_point}", why, alt or bool(note)
-            )
-        if note:
-            keep_force_encrypt = dataclasses.replace(
-                keep_force_encrypt, reason=f"{keep_force_encrypt.reason}; {note}", warning=True
-            )
+        why = f"no fstab ({missing})"
+        return (
+            Finding(True, "default", f"{why}; Magisk's safe default", True),
+            Finding(None, "not found", why, True),
+        )
+    enc = encryption_type(fstab.data)
+    suffix = f"; {note}" if note else ""
+    encrypt = Finding(
+        enc != "none", f"{fstab.label}:/data", f"/data encryption: {enc}{suffix}", bool(note)
+    )
+    entry = _preinit_entry(fstab.entries, enc)
+    if entry is None:
+        return encrypt, Finding(None, fstab.label, "no candidate partition in the fstab", True)
+    cands = _preinit_candidates(fstab.entries, enc)
+    mount_points = [e.mount_point for e in cands]
+    duplicated = len(set(mount_points)) != len(mount_points)
+    why = f"encryption {enc}; candidates " + ", ".join(
+        f"{posixpath.basename(e.source)}({e.mount_point}, {e.fs_type})" for e in cands
+    )
+    if duplicated:
+        why += "; several entries for the same mount point"
+    preinit = Finding(
+        posixpath.basename(entry.source),
+        f"{fstab.label}:{entry.mount_point}",
+        why + suffix,
+        duplicated or bool(note),
+    )
+    return encrypt, preinit
 
+
+def detect_settings(src: RomSource, workdir: Path) -> Settings:
+    """Detect every boot_patch.sh setting from the ROM, each with its source and reason."""
+    rom = _Rom(src, workdir)
+    sdk = _sdk(rom)
+    dynamic, dyn_source = _dynamic(rom)
+    sar = _system_as_root(sdk, dynamic, dyn_source)
+    ramdisk_size = rom.header.ramdisk_size
+    legacy_sar = Finding(
+        sar.value and not dynamic and ramdisk_size == 0,
+        f"{rom.target}:ramdisk_size",
+        f"SAR={sar.value}, dynamic={dynamic}, ramdisk of {ramdisk_size} bytes",
+        sar.warning,
+    )
+    keep_force_encrypt, preinit = _fstab_findings(rom)
     return Settings(
-        keep_verity=keep_verity,
+        keep_verity=sar,
         keep_force_encrypt=keep_force_encrypt,
         patch_vbmeta_flag=_patch_vbmeta_flag(rom),
         legacy_sar=legacy_sar,
