@@ -83,6 +83,8 @@ The report gives the Magisk version (name and code, SHA-256 of the APK), the set
 
 The zip produced by `--repack-zip` **is not re-signed**. Its name ends with `-unsigned.zip` and the tool prints a warning: installing it requires a recovery that does not verify the signature. Flashing the patched image directly (`fastboot`, `heimdall`…) remains the normal use.
 
+`--repack-zip` recompresses every entry of the zip: on a ROM of several GB, this can take a few minutes.
+
 ### Exit codes
 
 | Code | Meaning |
@@ -98,10 +100,10 @@ The Magisk app guesses them from the device; here they are inferred from the ROM
 | Setting | Meaning | Detection |
 |---|---|---|
 | `KEEPVERITY` | keep dm-verity (do not disable it in the fstab) | true for a system-as-root ROM (any modern ROM, based on the SDK) |
-| `KEEPFORCEENCRYPT` | keep the forced encryption of `/data` | true if the fstab's `/data` entry carries `fileencryption=`, `forceencrypt=` or `encryptable=` |
+| `KEEPFORCEENCRYPT` | keep the forced encryption of `/data` | true if the fstab's `/data` entry is encrypted: `keydirectory=` or `metadata_encryption=` (metadata encryption), `fileencryption=` (file-based), `forceencrypt=`, `encryptable=` or `forcefdeorfbe=` (block-based); without an fstab, true by default (Magisk's safe default), with a warning |
 | `PATCHVBMETAFLAG` | patch the vbmeta flag in the boot image header | false if the ROM ships `vbmeta.img`; true otherwise |
 | `LEGACYSAR` | hexpatch the kernel's `skip_initramfs` into `want_initramfs` | true only for an A-only system-as-root device without dynamic partitions and without a usable ramdisk in the boot image |
-| `PREINITDEVICE` | storage partition Magisk uses before `/data` is mounted | same algorithm as Magisk on the `vendor` fstab: candidates `/persist`, `/metadata`, `/klogdump`, `/cache`, `/data` (the latter only if it is not encrypted, or file-based encrypted without `metadata_encryption`), ext4 or f2fs, under `by-name/` or `block/`, excluding logical partitions; same order of preference as Magisk |
+| `PREINITDEVICE` | storage partition Magisk uses before `/data` is mounted | same algorithm as Magisk on the `vendor` fstab: candidates `/persist`, `/metadata`, `/klogdump`, `/cache`, `/data` (the latter only if it is not encrypted, or file-based encrypted without `keydirectory=` or `metadata_encryption=`), ext4 or f2fs, under `by-name/` or `block/`, excluding logical partitions; same order of preference as Magisk. Not found: warning, because Magisk does not pick one at boot (force it with `--preinit-device`) |
 
 On top of these come the device ABI (read from the `ro.vendor.product.cpu.abilist64` / `abilist` properties of the vendor `build.prop`), needed to pick the binaries embedded in the boot image, and `RECOVERYMODE`, always `false`: Magisk is installed in the boot image, not in recovery. The latter can be forced but is not detected.
 
