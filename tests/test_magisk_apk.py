@@ -317,3 +317,17 @@ def test_rate_limit_with_cache_warns_and_suggests_token(gh, tmp_path, capsys):
     assert resolve_apk("30.7", tmp_path, fetch=rate_limited).version == "30.7"
     err = capsys.readouterr().err
     assert "limit" in err and "GITHUB_TOKEN" in err
+
+
+@pytest.mark.parametrize("ver", ["30.7/../../x", "30.7;rm", "$(id)"])
+def test_unsafe_version_rejected(tmp_path, ver):
+    p = tmp_path / "evil.apk"
+    p.write_bytes(make_apk(ver=ver))
+    with pytest.raises(UserError, match="MAGISK_VER"):
+        resolve_apk(str(p), tmp_path, fetch=offline)
+
+
+def test_canary_style_version_accepted(tmp_path):
+    p = tmp_path / "c.apk"
+    p.write_bytes(make_apk(ver="f2c1e37a-30701", code=30701))
+    assert resolve_apk(str(p), tmp_path, fetch=offline).version == "f2c1e37a-30701"

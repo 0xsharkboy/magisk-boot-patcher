@@ -70,7 +70,10 @@ def _inspect(path: Path) -> MagiskApk:
     ver, code = _VERSION_RE.search(util), _CODE_RE.search(util)
     if not ver or not code:
         raise UserError(f"{path}: cannot read MAGISK_VER / MAGISK_VER_CODE from util_functions.sh")
-    return MagiskApk(path, ver.group(1), int(code.group(1)), _sha256_file(path))
+    version = ver.group(1)
+    if not re.fullmatch(r"[\w.+-]+", version):  # it ends up in output file names
+        raise UserError(f"{path}: invalid MAGISK_VER ({version!r})")
+    return MagiskApk(path, version, int(code.group(1)), _sha256_file(path))
 
 
 def _vkey(version: str) -> tuple:
