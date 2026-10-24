@@ -78,11 +78,16 @@ def make_boot_image(
     ]
     if ramdisk_data:
         cmd[5:5] = ["--ramdisk", str(ramdisk)]
+    dtb = path.with_name(path.name + ".dtb")
+    if header_version == 2:  # mkbootimg requires a non-empty dtb for v2
+        dtb.write_bytes(b"\xd0\x0d\xfe\xed" + b"\0" * 60)
+        cmd += ["--dtb", str(dtb)]
     if header_version < 3:
         cmd[1:1] = ["--pagesize", "2048"]
     subprocess.run(cmd, check=True, capture_output=True)
     kernel.unlink()
     ramdisk.unlink()
+    dtb.unlink(missing_ok=True)
     return path
 
 
