@@ -227,3 +227,35 @@ def test_inspect_bare_init_boot_target(tmp_path, capsys):
     sources = [s["source"] for s in rep["settings"].values()]
     assert "init_boot.img:ramdisk_size" in sources
     assert not [s for s in sources if s.startswith("boot.img:")]
+
+
+@pytest.mark.network
+@pytest.mark.skipif(os.geteuid() != 0, reason="chown needs root")
+def test_existing_out_owner_used(tmp_path, monkeypatch, magisk_args):
+    monkeypatch.setenv("MBP_CACHE_DIR", str(tmp_path / "cache"))
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    out = tmp_path / "out"  # parent owned by root, out by 1234
+    out.mkdir()
+    os.chown(out, 1234, 1235)
+    assert main(["patch", str(zip_path), "--out", str(out), *magisk_args]) == 0
+    files = list(out.iterdir())
+    assert files
+    for p in [out, *files]:
+        assert (p.stat().st_uid, p.stat().st_gid) == (1234, 1235)
+
+
+@pytest.mark.network
+@pytest.mark.skipif(os.geteuid() != 0, reason="chown needs root")
+def test_created_out_parents_chowned(tmp_path, monkeypatch, magisk_args):
+    monkeypatch.setenv("MBP_CACHE_DIR", str(tmp_path / "cache"))
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    base = tmp_path / "base"
+    base.mkdir()
+    os.chown(base, 1234, 1235)
+    out = base / "a" / "b" / "out"
+    assert main(["patch", str(zip_path), "--out", str(out), *magisk_args]) == 0
+    for d in (base / "a", base / "a" / "b", out):
+        assert (d.stat().st_uid, d.stat().st_gid) == (1234, 1235)
+        assert oct(d.stat().st_mode & 0o777) == "0o755"
+    for p in out.iterdir():
+        assert (p.stat().st_uid, p.stat().st_gid) == (1234, 1235)

@@ -108,10 +108,21 @@ def _inspect(args: argparse.Namespace, work: Path) -> int:
     return 0
 
 
-def _chown_like_parent(out: Path, paths: list[Path]) -> None:
+def _missing_dirs(out: Path) -> list[Path]:
+    """Directories that ``out.mkdir(parents=True)`` will create, deepest first."""
+    missing = []
+    p = out
+    while not p.exists() and p != p.parent:
+        missing.append(p)
+        p = p.parent
+    return missing
+
+
+def _chown_like(anchor: Path, paths: list[Path]) -> None:
+    """As root (in the container), give `paths` the owner of `anchor`, not root."""
     if os.geteuid() != 0:
         return
-    st = out.parent.stat()
+    st = anchor.stat()
     for p in paths:
         os.chown(p, st.st_uid, st.st_gid)
 
@@ -135,7 +146,9 @@ def _patch(args: argparse.Namespace, work: Path) -> int:
         print("Boot image already patched by Magisk: it was patched again.", file=sys.stderr)
 
     stem = f"{Path(src.target_image_name()).stem}-magisk-v{apk.version}"
-    created = not out.exists()
+    created = _missing_dirs(out)
+    # outputs belong to the owner of `out`, or of its nearest existing ancestor
+    anchor = created[-1].parent if created else out
     out.mkdir(parents=True, exist_ok=True)
     outputs: list[Path] = []
     try:
@@ -159,15 +172,13 @@ def _patch(args: argparse.Namespace, work: Path) -> int:
         # runs even when a later step failed, for the files written so far
         for p in outputs:
             p.chmod(0o644)
-        if created:
-            out.chmod(0o755)
-            outputs.append(out)
-        _chown_like_parent(out, outputs)
+        for d in created:
+            d.chmod(0o755)
+        _chown_like(anchor, [*outputs, *created])
 
     print(render_text(report), end="")
     for p in outputs:
-        if p is not out:
-            print(f"Written: {p}")
+        print(f"Written: {p}")
     return 0
 
 
