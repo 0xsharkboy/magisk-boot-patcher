@@ -78,7 +78,10 @@ def test_unsparse_sparse(tmp_path, tree):
 
 
 def test_tool_failure_raises_tool_error(tmp_path):
-    with pytest.raises(ToolError):
-        read_file(tmp_path / "missing.img", "/x") if False else \
-            __import__("magisk_boot_patcher.tools", fromlist=["run_tool"]).run_tool(
-                ["dump.erofs", "--cat", "--path=/x", str(tmp_path / "missing.img")])
+    from magisk_boot_patcher.tools import run_tool
+
+    with pytest.raises(ToolError) as ei:
+        run_tool(["dump.erofs", "--cat", "--path=/x", str(tmp_path / "missing.img")])
+    assert "missing.img" in str(ei.value)
+    assert ei.value.stderr
+    assert ei.value.exit_code == 2
