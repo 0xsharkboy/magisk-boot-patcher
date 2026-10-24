@@ -1,0 +1,135 @@
+import json
+import os
+
+import pytest
+
+from magisk_boot_patcher.cli import main
+
+from .helpers import make_block_ota_zip, make_boot_image
+
+
+def test_inspect_prints_report(tmp_path, capsys):
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    assert main(["inspect", str(zip_path)]) == 0
+    out = capsys.readouterr().out
+    assert "PREINITDEVICE" in out and "cache" in out
+    assert "Magisk:" not in out
+
+
+def test_inspect_json(tmp_path, capsys):
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    assert main(["inspect", str(zip_path), "--json", "--abi", "x86_64"]) == 0
+    rep = json.loads(capsys.readouterr().out)
+    assert rep["magisk"] is None
+    assert rep["settings"]["device_abi"]["value"] == "x86_64"
+    assert rep["settings"]["device_abi"]["source"] == "--abi"
+
+
+def test_inspect_override_only_set_options(tmp_path, capsys):
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    assert main(["inspect", str(zip_path), "--json", "--no-keep-verity"]) == 0
+    s = json.loads(capsys.readouterr().out)["settings"]
+    assert s["KEEPVERITY"]["source"] == "--no-keep-verity"
+    assert s["KEEPFORCEENCRYPT"]["source"] != "--keep-force-encrypt"
+
+
+def test_inspect_payload_is_user_error(tmp_path, capsys):
+    import zipfile
+
+    z = tmp_path / "ab.zip"
+    with zipfile.ZipFile(z, "w") as f:
+        f.writestr("payload.bin", b"x")
+    assert main(["inspect", str(z)]) == 1
+    err = capsys.readouterr().err
+    assert "payload.bin" in err and "Traceback" not in err
+
+
+def test_missing_file_is_user_error(tmp_path, capsys):
+    assert main(["inspect", str(tmp_path / "nope.zip")]) == 1
+
+
+def test_inspect_relative_path_from_cwd(tmp_path, monkeypatch, capsys):
+    make_block_ota_zip(tmp_path / "rom", name="rel.zip")
+    monkeypatch.chdir(tmp_path / "rom")
+    assert main(["inspect", "rel.zip"]) == 0
+
+
+def test_tool_error_exit_2(tmp_path, monkeypatch, capsys):
+    from magisk_boot_patcher import cli
+    from magisk_boot_patcher.errors import ToolError
+
+    def boom(*a, **k):
+        raise ToolError("kaboom", ["x"], "log text")
+
+    monkeypatch.setattr(cli, "detect_settings", boom)
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    assert main(["inspect", str(zip_path)]) == 2
+    err = capsys.readouterr().err
+    assert "kaboom" in err and "log text" in err and "Traceback" not in err
+
+
+def test_workdir_removed(tmp_path, monkeypatch):
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    tmp = tmp_path / "tmp"
+    tmp.mkdir()
+    monkeypatch.setenv("TMPDIR", str(tmp))
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    assert main(["inspect", str(zip_path)]) == 0
+    assert list(tmp.iterdir()) == []
+
+
+@pytest.mark.network
+def test_patch_zip(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("MBP_CACHE_DIR", str(tmp_path / "cache"))
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    out = tmp_path / "out"
+    rc = main(["patch", str(zip_path), "--out", str(out), "--preinit-device", "metadata"])
+    assert rc == 0
+    imgs = list(out.glob("boot-magisk-v*.img"))
+    assert len(imgs) == 1
+    stem = imgs[0].stem
+    rep = json.loads((out / f"{stem}.report.json").read_text())
+    assert rep["settings"]["PREINITDEVICE"]["source"] == "--preinit-device"
+    assert rep["sha256"]["patched"]
+    assert (out / f"{stem}.report.txt").exists()
+    assert oct(imgs[0].stat().st_mode & 0o777) == "0o644"
+    assert not list(out.glob("*.zip"))
+
+
+@pytest.mark.network
+def test_patch_repack_zip(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("MBP_CACHE_DIR", str(tmp_path / "cache"))
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    out = tmp_path / "out"
+    assert main(["patch", str(zip_path), "--out", str(out), "--repack-zip"]) == 0
+    zips = list(out.glob("rom-magisk-v*-unsigned.zip"))
+    assert len(zips) == 1
+    assert oct(zips[0].stat().st_mode & 0o777) == "0o644"
+    assert "Unsigned zip" in capsys.readouterr().err
+
+
+@pytest.mark.network
+def test_patch_bare_init_boot_naming(tmp_path, monkeypatch):
+    monkeypatch.setenv("MBP_CACHE_DIR", str(tmp_path / "cache"))
+    img = make_boot_image(tmp_path / "init_boot.img", header_version=4)
+    out = tmp_path / "out"
+    assert main(["patch", str(img), "--out", str(out)]) == 0
+    assert list(out.glob("init_boot-magisk-v*.img"))
+
+
+@pytest.mark.network
+@pytest.mark.skipif(os.geteuid() != 0, reason="chown needs root")
+def test_outputs_chowned_to_dir_owner(tmp_path, monkeypatch):
+    monkeypatch.setenv("MBP_CACHE_DIR", str(tmp_path / "cache"))
+    zip_path = make_block_ota_zip(tmp_path / "rom")
+    base = tmp_path / "base"
+    base.mkdir()
+    os.chown(base, 1234, 1234)
+    out = base / "out"
+    assert main(["patch", str(zip_path), "--out", str(out), "--repack-zip"]) == 0
+    files = list(out.iterdir())
+    assert len(files) == 4
+    for p in [out, *files]:
+        assert p.stat().st_uid == 1234 and p.stat().st_gid == 1234
