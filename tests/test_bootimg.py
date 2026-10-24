@@ -47,3 +47,24 @@ def test_read_ramdisk_files_no_ramdisk(tmp_path):
     boot = make_boot_image(tmp_path / "boot.img", ramdisk_compression="empty")
     assert read_header(boot).ramdisk_size == 0
     assert read_ramdisk_files(boot) == {}
+
+
+def test_parse_cpio_newc_garbled_header_stops_gracefully():
+    from magisk_boot_patcher.bootimg import _parse_cpio_newc
+    from tests.helpers import _cpio_newc
+
+    good = _cpio_newc({"init": b"x"})
+    trailer = good.index(b"070701", 1)
+    garbled = good[:trailer] + b"070701" + b"ZZZZZZZZ" * 13 + b"junk"
+    assert _parse_cpio_newc(garbled) == {"init": b"x"}
+    truncated = good[:trailer] + b"070701" + b"0000"
+    assert _parse_cpio_newc(truncated) == {"init": b"x"}
+
+
+def test_read_ramdisk_files_garbled_cpio(tmp_path):
+    boot = make_boot_image(tmp_path / "boot.img", ramdisk_compression="none")
+    data = bytearray(boot.read_bytes())
+    pos = data.index(b"070701")
+    data[pos + 6:pos + 14] = b"GGGGGGGG"
+    boot.write_bytes(bytes(data))
+    assert read_ramdisk_files(boot) == {}

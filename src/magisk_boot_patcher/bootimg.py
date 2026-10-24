@@ -93,7 +93,10 @@ def _parse_cpio_newc(data: bytes) -> dict[str, bytes]:
             pos += 1
         if data[pos:pos + 6] != CPIO_NEWC_MAGIC or pos + 110 > len(data):
             break
-        fields = [int(data[pos + 6 + 8 * i:pos + 14 + 8 * i], 16) for i in range(13)]
+        try:
+            fields = [int(data[pos + 6 + 8 * i:pos + 14 + 8 * i], 16) for i in range(13)]
+        except ValueError:  # garbled header: keep what was parsed so far
+            break
         mode, filesize, namesize = fields[1], fields[6], fields[11]
         name_start = pos + 110
         name = data[name_start:name_start + namesize].split(b"\0", 1)[0].decode(errors="replace")
