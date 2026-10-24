@@ -77,26 +77,45 @@ def _vkey(version: str) -> tuple:
     return tuple(int(p) if p.isdigit() else 0 for p in re.split(r"[.\-]", version))
 
 
-def _cached(cache: Path, version: str) -> MagiskApk | None:
-    """Return the cached APK for `version` if present and intact."""
+# Cache sidecar ``Magisk-v<ver>.apk.sha256``: "<sha256> <release|prerelease>". An entry
+# without the second word (older cache) has an unknown channel.
+_RELEASE, _PRERELEASE = "release", "prerelease"
+
+
+def _sidecar(path: Path) -> Path:
+    return path.with_name(path.name + ".sha256")
+
+
+def _write_sidecar(path: Path, sha256: str, prerelease: bool) -> None:
+    _sidecar(path).write_text(f"{sha256} {_PRERELEASE if prerelease else _RELEASE}\n")
+
+
+def _cached(cache: Path, version: str, *, stable_only: bool = False) -> MagiskApk | None:
+    """Return the cached APK for `version` if present and intact.
+
+    With `stable_only`, an APK not recorded as a stable release (canary, or unknown
+    channel) is ignored.
+    """
     path = cache / f"Magisk-v{version}.apk"
-    rec = path.with_name(path.name + ".sha256")
     try:
-        if _sha256_file(path) != rec.read_text().split()[0]:
+        record = _sidecar(path).read_text().split()
+        if stable_only and record[1:2] != [_RELEASE]:
+            return None
+        if _sha256_file(path) != record[0]:
             return None
         return _inspect(path)
     except (OSError, IndexError, UserError):
         return None
 
 
-def _newest_cached(cache: Path) -> MagiskApk | None:
+def _newest_cached(cache: Path, *, stable_only: bool) -> MagiskApk | None:
     versions = [
         m.group(1)
         for p in cache.glob("Magisk-v*.apk")
         if (m := re.fullmatch(r"Magisk-v(.+)\.apk", p.name))
     ]
     for v in sorted(versions, key=_vkey, reverse=True):
-        if (apk := _cached(cache, v)):
+        if (apk := _cached(cache, v, stable_only=stable_only)):
             return apk
     return None
 
@@ -113,7 +132,7 @@ _TOKEN_HINT = (
 def _offline(spec: str, cache: Path, err: Exception) -> MagiskApk:
     apk = None
     if spec in ("latest", "canary"):
-        apk = _newest_cached(cache)
+        apk = _newest_cached(cache, stable_only=spec == "latest")
     else:
         apk = _cached(cache, spec.removeprefix("v"))
     limited = _rate_limited(err)
@@ -187,7 +206,9 @@ def resolve_apk(
         )
     expected = digest.removeprefix("sha256:").lower()
 
+    prerelease = bool(release.get("prerelease"))
     if (apk := _cached(cache, version)) and apk.sha256 == expected:
+        _write_sidecar(apk.path, apk.sha256, prerelease)  # (re)record the channel
         return apk
 
     try:
@@ -209,7 +230,7 @@ def resolve_apk(
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
-    final.with_name(name + ".sha256").write_text(actual + "\n")
+    _write_sidecar(final, actual, prerelease)
     return _inspect(final)
 
 

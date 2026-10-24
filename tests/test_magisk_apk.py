@@ -101,7 +101,9 @@ def test_resolve_latest_skips_prerelease(gh, tmp_path):
     assert apk.version == "30.7" and apk.version_code == 30700
     assert apk.path == tmp_path / "apk" / "Magisk-v30.7.apk"
     assert apk.sha256 == sha(apk.path.read_bytes())
-    assert (tmp_path / "apk" / "Magisk-v30.7.apk.sha256").read_text().strip() == apk.sha256
+    assert (tmp_path / "apk" / "Magisk-v30.7.apk.sha256").read_text().split() == [
+        apk.sha256, "release"
+    ]
 
 
 def test_resolve_canary_includes_prerelease(gh, tmp_path):
@@ -149,9 +151,37 @@ def test_corrupt_cache_is_redownloaded(gh, tmp_path):
 def test_resolve_uses_cache_offline(gh, tmp_path, capsys):
     resolve_apk("latest", tmp_path, fetch=gh)
     resolve_apk("canary", tmp_path, fetch=gh)
+    assert (tmp_path / "apk" / "Magisk-v31.0.apk.sha256").read_text().split()[1] == "prerelease"
     apk = resolve_apk("latest", tmp_path, fetch=offline)
-    assert apk.version == "31.0"  # most recent cached
+    assert apk.version == "30.7"  # newest cached stable, never the cached canary
     assert "offline" in capsys.readouterr().err.lower()
+    assert resolve_apk("canary", tmp_path, fetch=offline).version == "31.0"
+
+
+def test_offline_latest_ignores_cached_canary_only(gh, tmp_path):
+    resolve_apk("canary", tmp_path, fetch=gh)
+    with pytest.raises(OfflineError):
+        resolve_apk("latest", tmp_path, fetch=offline)
+    with pytest.raises(OfflineError):
+        resolve_apk("latest", tmp_path, fetch=rate_limited)
+
+
+def test_offline_latest_ignores_cache_entry_without_flag(gh, tmp_path):
+    apk = resolve_apk("30.7", tmp_path, fetch=gh)
+    sidecar = apk.path.with_name(apk.path.name + ".sha256")
+    sidecar.write_text(apk.sha256 + "\n")  # written before the flag existed: unknown
+    with pytest.raises(OfflineError):
+        resolve_apk("latest", tmp_path, fetch=offline)
+    assert resolve_apk("canary", tmp_path, fetch=offline).version == "30.7"
+    assert resolve_apk("30.7", tmp_path, fetch=offline).version == "30.7"
+
+
+def test_cache_hit_records_flag(gh, tmp_path):
+    apk = resolve_apk("latest", tmp_path, fetch=gh)
+    sidecar = apk.path.with_name(apk.path.name + ".sha256")
+    sidecar.write_text(apk.sha256 + "\n")
+    resolve_apk("latest", tmp_path, fetch=gh)
+    assert sidecar.read_text().split() == [apk.sha256, "release"]
 
 
 def test_resolve_explicit_version_offline_cache(gh, tmp_path):
