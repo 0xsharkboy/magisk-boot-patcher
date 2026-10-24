@@ -142,7 +142,7 @@ docker run --rm -v "$PWD:/src" -w /src mbp-dev pytest -q
 
 Two pytest markers flag special tests:
 
-- `network`: needs network access (GitHub API, APK download);
+- `network`: needs network access (GitHub API, APK download), except with `MBP_TEST_APK` (see below);
 - `reference`: needs a real ROM, skipped if `MBP_REFERENCE_ROM` is not set:
 
 ```sh
