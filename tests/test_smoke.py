@@ -1,7 +1,5 @@
 import shutil
 
-import pytest
-
 
 def test_import_and_tools():
     import magisk_boot_patcher
