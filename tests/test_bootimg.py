@@ -1,6 +1,6 @@
 import pytest
 
-from magisk_boot_patcher.bootimg import read_header
+from magisk_boot_patcher.bootimg import read_header, read_ramdisk_files
 from magisk_boot_patcher.errors import UserError
 from tests.helpers import make_boot_image
 
@@ -26,3 +26,24 @@ def test_read_header_rejects_garbage(tmp_path):
     p.write_bytes(b"nope" * 1000)
     with pytest.raises(UserError):
         read_header(p)
+
+
+@pytest.mark.parametrize("version", [0, 1, 2, 3, 4])
+@pytest.mark.parametrize("compression", ["gzip", "none"])
+def test_read_ramdisk_files(tmp_path, version, compression):
+    files = {"init": b"#!init\n", "first_stage_ramdisk/fstab.test": b"fstab\n"}
+    boot = make_boot_image(
+        tmp_path / "boot.img", files, header_version=version, ramdisk_compression=compression
+    )
+    assert read_ramdisk_files(boot) == files
+
+
+def test_read_ramdisk_files_unsupported_compression(tmp_path):
+    boot = make_boot_image(tmp_path / "boot.img", ramdisk_compression="lz4")
+    assert read_ramdisk_files(boot) == {}
+
+
+def test_read_ramdisk_files_no_ramdisk(tmp_path):
+    boot = make_boot_image(tmp_path / "boot.img", ramdisk_compression="empty")
+    assert read_header(boot).ramdisk_size == 0
+    assert read_ramdisk_files(boot) == {}
