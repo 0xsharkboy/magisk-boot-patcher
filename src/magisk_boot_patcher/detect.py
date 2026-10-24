@@ -282,7 +282,7 @@ def _patch_vbmeta_flag(rom: _Rom) -> Finding[bool]:
     script = rom.src.read_member(UPDATER_SCRIPT)
     if script is not None and _VBMETA_WRITE.search(script.decode(errors="replace")):
         return Finding(False, f"zip:{UPDATER_SCRIPT}", "the installer script writes vbmeta")
-    return Finding(True, "zip", "the ROM ships no vbmeta")
+    return Finding(True, "zip:vbmeta.img (missing)", "the ROM ships no vbmeta")
 
 
 def _device_abi(rom: _Rom) -> Finding[str]:

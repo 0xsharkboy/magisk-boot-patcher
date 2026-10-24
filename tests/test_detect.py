@@ -230,6 +230,7 @@ def test_unencrypted_fstab(tmp_path):
 def test_no_vbmeta_sets_patch_flag(tmp_path):
     s = _detect(tmp_path, fstab=REF_FSTAB, vendor_build_prop=REF_PROPS, with_vbmeta=False)
     assert s.patch_vbmeta_flag.value is True
+    assert s.patch_vbmeta_flag.source == "zip:vbmeta.img (missing)"
     assert not s.patch_vbmeta_flag.warning
 
 
