@@ -82,3 +82,25 @@ def test_third_party_patched_boot_fails(staged, tmp_path):
     )
     with pytest.raises(UserError, match="original boot image"):
         patch_boot(boot, make_settings(), staged)
+
+
+def test_patch_boot_refuses_unstaged_dir(tmp_path):
+    victim = tmp_path / "home"
+    victim.mkdir()
+    (victim / "precious.txt").write_text("keep me")
+    (victim / "magiskboot").write_text("")  # boot_patch.sh missing
+    boot = make_boot_image(tmp_path / "boot.img")
+    with pytest.raises(ValueError, match="staged"):
+        patch_boot(boot, make_settings(), victim)
+    assert (victim / "precious.txt").read_text() == "keep me"
+
+
+def test_patch_boot_refuses_boot_inside_staged(tmp_path):
+    staged = tmp_path / "staged"
+    (staged / "out").mkdir(parents=True)
+    for name in ("boot_patch.sh", "magiskboot"):
+        (staged / name).write_text("")
+    boot = make_boot_image(staged / "out" / "boot.img")
+    with pytest.raises(ValueError, match="inside"):
+        patch_boot(boot, make_settings(), staged)
+    assert boot.exists()

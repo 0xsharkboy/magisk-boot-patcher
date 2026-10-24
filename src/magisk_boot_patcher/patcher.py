@@ -50,6 +50,12 @@ def _getprop_script(settings: Settings) -> str:
 
 def patch_boot(boot: Path, settings: Settings, staged: Path) -> PatchResult:
     staged = Path(staged).resolve()
+    # _clean() deletes everything else in `staged`: make sure it really is a stage_apk dir
+    # and that the input does not live in it.
+    if not all((staged / n).is_file() for n in ("boot_patch.sh", "magiskboot")):
+        raise ValueError(f"{staged} is not a staged Magisk directory")
+    if Path(boot).resolve().is_relative_to(staged):
+        raise ValueError(f"boot image {boot} is inside the staged directory {staged}")
     _clean(staged)
     shutil.copyfile(boot, staged / "boot.img")
     bindir = staged / "bin"
