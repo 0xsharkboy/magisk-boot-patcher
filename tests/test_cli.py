@@ -5,11 +5,13 @@ import pytest
 
 from magisk_boot_patcher.cli import main
 
-from .helpers import make_block_ota_zip, make_boot_image
+from .helpers import DEFAULT_FSTAB, make_block_ota_zip, make_boot_image
+
+CACHE_FSTAB = DEFAULT_FSTAB + "/dev/block/by-name/cache /cache ext4 noatime wait,check\n"
 
 
 def test_inspect_prints_report(tmp_path, capsys):
-    zip_path = make_block_ota_zip(tmp_path / "rom")
+    zip_path = make_block_ota_zip(tmp_path / "rom", fstab=CACHE_FSTAB)
     assert main(["inspect", str(zip_path)]) == 0
     out = capsys.readouterr().out
     assert "PREINITDEVICE" in out and "cache" in out
