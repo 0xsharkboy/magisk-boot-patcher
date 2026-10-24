@@ -54,6 +54,34 @@ def test_encryption_type_flags(flags, expected):
     assert encryption_type(entry) == expected
 
 
+def test_encryption_type_keydirectory_is_metadata():
+    entry = _data(
+        "/dev/block/by-name/userdata /data f2fs noatime "
+        "wait,fileencryption=aes-256-xts:aes-256-cts:v2,keydirectory=/metadata/vold/metadata_encryption\n"
+    )
+    assert encryption_type(entry) == "metadata"
+
+
+def test_preinit_keydirectory_excludes_data():
+    text = (
+        "/dev/block/by-name/userdata /data ext4 noatime "
+        "wait,fileencryption=aes-256-xts,keydirectory=/metadata/vold/metadata_encryption\n"
+        "/dev/block/by-name/md /metadata f2fs noatime wait\n"
+    )
+    entries = _entries(text)
+    assert find_preinit_device(entries, encryption_type(_data(text))) == "md"
+
+
+def test_detect_keydirectory_reason(tmp_path):
+    fstab = REF_FSTAB.replace("metadata_encryption=aes-256-xts,", "")
+    assert "metadata_encryption=" not in fstab
+    s = _detect(tmp_path, fstab=fstab, vendor_build_prop=REF_PROPS)
+    assert s.keep_force_encrypt.value is True
+    assert "metadata" in s.keep_force_encrypt.reason
+    assert "keydirectory=" in s.keep_force_encrypt.reason
+    assert s.preinit_device.value == "cache"
+
+
 def test_encryption_type_without_data():
     assert encryption_type(None) == "none"
 
@@ -247,6 +275,19 @@ def test_updater_script_flashing_vbmeta(tmp_path):
     assert s.patch_vbmeta_flag.source == "zip:META-INF/com/google/android/updater-script"
 
 
+@pytest.mark.parametrize("target", ["vbmeta_a", "vbmeta_b"])
+def test_updater_script_flashing_vbmeta_slot(tmp_path, target):
+    script = f'package_extract_file("vb.img", "/dev/block/by-name/{target}");\n'.encode()
+    s = _detect(
+        tmp_path,
+        fstab=REF_FSTAB,
+        vendor_build_prop=REF_PROPS,
+        with_vbmeta=False,
+        extra_members={"META-INF/com/google/android/updater-script": script},
+    )
+    assert s.patch_vbmeta_flag.value is False
+
+
 def test_updater_script_vbmeta_system_only(tmp_path):
     script = b'package_extract_file("vbs.img", "/dev/block/by-name/vbmeta_system");\n'
     s = _detect(
@@ -349,7 +390,8 @@ def test_apply_overrides():
     assert o.preinit_device.source == "--preinit-device"
     assert o.preinit_device.reason == "forced on the command line"
     assert o.keep_verity.value is False
-    assert o.keep_verity.source == "--keep-verity"
+    assert o.keep_verity.source == "--no-keep-verity"
+    assert apply_overrides(s, {"legacy_sar": True}).legacy_sar.source == "--legacy-sar"
     assert s.preinit_device.value == "cache"
     with pytest.raises(ValueError):
         apply_overrides(s, {"nope": 1})

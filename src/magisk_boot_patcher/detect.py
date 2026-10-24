@@ -35,7 +35,8 @@ _PART_IDS = {
 
 OTA_METADATA = "META-INF/com/android/metadata"
 UPDATER_SCRIPT = "META-INF/com/google/android/updater-script"
-_VBMETA_WRITE = re.compile(r"by-name/vbmeta(?![\w.-])")
+# by-name/vbmeta, optionally with an A/B slot suffix, but not vbmeta_system/vbmeta_vendor.
+_VBMETA_WRITE = re.compile(r"by-name/vbmeta(?:_[ab])?(?![\w.-])")
 
 # Ramdisk directories where fs_mgr (GetFstabPath) looks for the first-stage fstab.
 _RAMDISK_FSTAB_DIRS = ("", "first_stage_ramdisk", "system/etc", "first_stage_ramdisk/system/etc")
@@ -47,22 +48,32 @@ _OS_TO_SDK = {10: 29, 11: 30, 12: 31, 13: 33, 14: 34, 15: 35, 16: 36}
 # --- fstab-level rules -------------------------------------------------------
 
 
-def encryption_type(data: FstabEntry | None) -> Encryption:
-    """Encryption type of ``/data`` from its fs_mgr flags."""
+def _encryption(data: FstabEntry | None) -> tuple[Encryption, str]:
+    """Encryption type of ``/data`` and the fs_mgr flag that decided it."""
     if data is None:
-        return "none"
+        return "none", ""
     flags = data.fs_mgr_flags
 
-    def has(prefix: str) -> bool:
-        return any(f.startswith(prefix) for f in flags)
+    def find(*prefixes: str) -> str:
+        return next((p for p in prefixes for f in flags if f.startswith(p)), "")
 
-    if has("metadata_encryption="):
-        return "metadata"
-    if has("fileencryption="):
-        return "file"
-    if has("forceencrypt=") or has("encryptable=") or has("forcefdeorfbe="):
-        return "block"
-    return "none"
+    # In AOSP, keydirectory= enables metadata encryption (vold sets
+    # ro.crypto.metadata.enabled); metadata_encryption= only selects the cipher.
+    rules: tuple[tuple[Encryption, tuple[str, ...]], ...] = (
+        ("metadata", ("metadata_encryption=", "keydirectory=")),
+        ("file", ("fileencryption=",)),
+        ("block", ("forceencrypt=", "encryptable=", "forcefdeorfbe=")),
+    )
+    for kind, prefixes in rules:
+        flag = find(*prefixes)
+        if flag:
+            return kind, flag
+    return "none", ""
+
+
+def encryption_type(data: FstabEntry | None) -> Encryption:
+    """Encryption type of ``/data`` from its fs_mgr flags."""
+    return _encryption(data)[0]
 
 
 def _cmp(a: tuple[int, str], b: tuple[int, str]) -> int:
@@ -123,7 +134,10 @@ def apply_overrides(s: Settings, overrides: dict[str, object]) -> Settings:
     for name, value in overrides.items():
         if name not in names:
             raise ValueError(f"unknown setting {name!r}")
-        changes[name] = Finding(value, "--" + name.replace("_", "-"), "forced on the command line")
+        option = name.replace("_", "-")
+        if value is False:
+            option = "no-" + option
+        changes[name] = Finding(value, "--" + option, "forced on the command line")
     return dataclasses.replace(s, **changes)
 
 
@@ -313,10 +327,11 @@ def _fstab_findings(rom: _Rom) -> tuple[Finding[bool], Finding[str | None]]:
             Finding(True, "default", f"{why}; Magisk's safe default", True),
             Finding(None, "not found", why, True),
         )
-    enc = encryption_type(fstab.data)
+    enc, flag = _encryption(fstab.data)
+    enc_why = f"/data encryption: {enc}" + (f" ({flag})" if flag else "")
     suffix = f"; {note}" if note else ""
     encrypt = Finding(
-        enc != "none", f"{fstab.label}:/data", f"/data encryption: {enc}{suffix}", bool(note)
+        enc != "none", f"{fstab.label}:/data", f"{enc_why}{suffix}", bool(note)
     )
     entry = _preinit_entry(fstab.entries, enc)
     if entry is None:
